@@ -13,3 +13,5 @@ email-validator==2.0.0.post2
 sqlalchemy==2.0.23
 typing-extensions>=4.8.0
 nest-asyncio>=1.5.8
+beautifulsoup4>=4.12.2
+aiohttp>=3.9.0
