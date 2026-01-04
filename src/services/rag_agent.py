@@ -42,7 +42,7 @@ class RAGAgentService:
                 logger = logging.getLogger("rag_chatbot")
                 logger.warning("GEMINI_API_KEY is not set in environment variables. Client will be None.")
                 return None
-            
+
             try:
                 self._client = AsyncOpenAI(
                     api_key=GEMINI_API_KEY,
@@ -52,6 +52,8 @@ class RAGAgentService:
                 import logging
                 logger = logging.getLogger("rag_chatbot")
                 logger.error(f"Failed to initialize OpenAI client: {e}")
+                import traceback
+                traceback.print_exc()
                 return None
         return self._client
         
@@ -72,8 +74,13 @@ class RAGAgentService:
         logger = logging.getLogger("rag_chatbot")
         try:
             # Import the semantic search service for enhanced search capabilities
-            from .semantic_search import SemanticSearchService
-            search_service = SemanticSearchService(self.qdrant_manager.collection_name)
+            try:
+                from .semantic_search import SemanticSearchService
+                search_service = SemanticSearchService(self.qdrant_manager.collection_name)
+            except ImportError as e:
+                logger.error(f"Failed to import SemanticSearchService: {e}")
+                # Fall back to basic search if import fails
+                return await self._basic_search_fallback(query, top_k, module_filter)
 
             logger.debug(f"Retrieving relevant content for query: '{query[:50]}...', top_k: {top_k}, module_filter: {module_filter}")
 
@@ -92,6 +99,8 @@ class RAGAgentService:
 
         except Exception as e:
             logger.error(f"Error retrieving relevant content for query '{query[:50]}...': {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     async def _search_with_module_awareness(self, search_service: 'SemanticSearchService',
@@ -234,10 +243,15 @@ class RAGAgentService:
         """
         try:
             # Import the semantic search service to ensure integration
-            from .semantic_search import SemanticSearchService
+            try:
+                from .semantic_search import SemanticSearchService
 
-            # Create a semantic search instance
-            search_service = SemanticSearchService(self.qdrant_manager.collection_name)
+                # Create a semantic search instance
+                search_service = SemanticSearchService(self.qdrant_manager.collection_name)
+            except ImportError as e:
+                print(f"Error importing SemanticSearchService: {e}")
+                # Fallback to the original method if import fails
+                return await self.get_relevant_content(query, top_k, module_filter)
 
             # Prepare filters
             filters = {}
@@ -278,8 +292,10 @@ class RAGAgentService:
             return integrated_content
         except Exception as e:
             print(f"Error integrating with semantic search: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback to the original method
-            return self.get_relevant_content(query, top_k, module_filter)
+            return await self.get_relevant_content(query, top_k, module_filter)
     
     async def generate_response(self, query: str, context: List[Dict[str, Any]],
                          selected_text: Optional[str] = None,
@@ -496,34 +512,58 @@ class RAGAgentService:
                     "error": "OpenAI/Gemini client not initialized"
                 }
 
-            response = await client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": query}
-                ],
-                max_tokens=1000,  # Adjust based on desired response length (approx 300 words)
-                temperature=0.2,  # Lower temperature for more factual and consistent responses
-                stop=["\\n\\n", "Important:"]
-            )
+            try:
+                response = await client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": query}
+                    ],
+                    max_tokens=1000,  # Adjust based on desired response length (approx 300 words)
+                    temperature=0.2,  # Lower temperature for more factual and consistent responses
+                    stop=["\\n\\n", "Important:"]
+                )
 
-            # Extract the response text
-            response_text = response.choices[0].message.content.strip()
+                # Extract the response text
+                response_text = response.choices[0].message.content.strip()
+            except Exception as e:
+                logger.error(f"Error calling AI service: {e}")
+                import traceback
+                traceback.print_exc()
+                return {
+                    "response": "I'm sorry, but I encountered an error connecting to the AI service. Please try again.",
+                    "citations": citations,
+                    "context_used": len(context),
+                    "model_used": self.model,
+                    "error": str(e)
+                }
 
-            # Apply textbook terminology to the response
-            response_text = self._apply_textbook_terminology(response_text, context)
+            try:
+                # Apply textbook terminology to the response
+                response_text = self._apply_textbook_terminology(response_text, context)
 
-            # Ensure the response meets length requirements (150-300 words)
-            response_text = await self._control_response_length(
-                response_text,
-                system_prompt,
-                query,
-                min_words=150,
-                max_words=300
-            )
+                # Ensure the response meets length requirements (150-300 words)
+                response_text = await self._control_response_length(
+                    response_text,
+                    system_prompt,
+                    query,
+                    min_words=150,
+                    max_words=300
+                )
+            except Exception as e:
+                logger.error(f"Error controlling response length or applying terminology: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue with original response if these operations fail
 
-            # Validate the response quality before returning
-            validation_result = self.validate_response_quality(response_text, query, context)
+            try:
+                # Validate the response quality before returning
+                validation_result = self.validate_response_quality(response_text, query, context)
+            except Exception as e:
+                logger.error(f"Error validating response quality: {e}")
+                import traceback
+                traceback.print_exc()
+                validation_result = {"valid": True, "error": str(e)}
 
             # Ensure the response is properly cited and factual
             result = {
@@ -1384,39 +1424,74 @@ class RAGAgentService:
         if selected_text:
             logger.info(f"Handling text selection query with selected text: '{selected_text[:100]}...'")
 
-            # Get conversation context if not provided
-            if conversation_context is None and session_id:
-                from .session_manager import ConversationContextManager
-                context_manager = ConversationContextManager()
-                conversation_context = context_manager.get_recent_context(session_id)
+            try:
+                # Get conversation context if not provided
+                if conversation_context is None and session_id:
+                    from .session_manager import ConversationContextManager
+                    context_manager = ConversationContextManager()
+                    conversation_context = context_manager.get_recent_context(session_id)
 
-            # Use specialized method for text selection queries
-            response_data = await self.handle_text_selection_query(
-                selected_text=selected_text,
-                question=query,
-                module_context=module_context,
-                conversation_context=conversation_context
-            )
+                # Use specialized method for text selection queries
+                response_data = await self.handle_text_selection_query(
+                    selected_text=selected_text,
+                    question=query,
+                    module_context=module_context,
+                    conversation_context=conversation_context
+                )
 
-            # Add additional metadata
-            response_data["module_context"] = module_context
-            response_data["query"] = query
-            response_data["selected_text"] = selected_text
+                # Add additional metadata
+                response_data["module_context"] = module_context
+                response_data["query"] = query
+                response_data["selected_text"] = selected_text
 
-            logger.info(f"Text selection query completed for session {session_id}")
-            return response_data
+                logger.info(f"Text selection query completed for session {session_id}")
+                return response_data
+            except Exception as e:
+                logger.error(f"Error in text selection query: {e}")
+                import traceback
+                traceback.print_exc()
+                # Return a fallback response if text selection fails
+                return {
+                    "response": "I'm sorry, but I encountered an error processing your text selection query. Please try again.",
+                    "citations": [],
+                    "context_used": 0,
+                    "module_context": module_context,
+                    "query": query,
+                    "selected_text": selected_text
+                }
 
         # For general queries, first resolve conversation context
-        resolved_context = self.resolve_conversation_context(query, conversation_context)
-        expanded_query = resolved_context["expanded_query"]
+        try:
+            resolved_context = self.resolve_conversation_context(query, conversation_context)
+            expanded_query = resolved_context["expanded_query"]
+        except Exception as e:
+            logger.error(f"Error resolving conversation context: {e}")
+            import traceback
+            traceback.print_exc()
+            # Use original query if context resolution fails
+            resolved_context = {"expanded_query": query}
+            expanded_query = query
 
         # Retrieve relevant content based on the (potentially expanded) query
-        relevant_content = await self.get_relevant_content(
-            expanded_query,
-            top_k=5,
-            module_filter=module_context,
-            prioritize_current_module=True
-        )
+        try:
+            relevant_content = await self.get_relevant_content(
+                expanded_query,
+                top_k=5,
+                module_filter=module_context,
+                prioritize_current_module=True
+            )
+        except Exception as e:
+            logger.error(f"Error retrieving relevant content: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return a response indicating the error
+            return {
+                "response": "I'm sorry, but I encountered an error retrieving relevant content. Please try again.",
+                "citations": [],
+                "context_used": 0,
+                "module_context": module_context,
+                "conversation_resolved": resolved_context
+            }
 
         # If no relevant content is found, return a response indicating this
         if not relevant_content:
@@ -1431,55 +1506,105 @@ class RAGAgentService:
 
         # If conversation_context wasn't provided but session_id was, try to get it
         if conversation_context is None and session_id:
-            from .session_manager import ConversationContextManager
-            context_manager = ConversationContextManager()
-            conversation_context = context_manager.get_recent_context(session_id)
+            try:
+                from .session_manager import ConversationContextManager
+                context_manager = ConversationContextManager()
+                conversation_context = context_manager.get_recent_context(session_id)
+            except Exception as e:
+                logger.error(f"Error getting conversation context: {e}")
+                import traceback
+                traceback.print_exc()
+                conversation_context = []
 
         # Apply context window management
         if conversation_context:
-            conversation_context = self.manage_context_window(conversation_context, context_window_size)
+            try:
+                conversation_context = self.manage_context_window(conversation_context, context_window_size)
+            except Exception as e:
+                logger.error(f"Error managing context window: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue with original context if window management fails
 
         # Generate response using the retrieved context
-        response_data = await self.generate_response(
-            query,
-            relevant_content,
-            selected_text=selected_text,
-            module_context=module_context,
-            conversation_context=conversation_context
-        )
+        try:
+            response_data = await self.generate_response(
+                query,
+                relevant_content,
+                selected_text=selected_text,
+                module_context=module_context,
+                conversation_context=conversation_context
+            )
+        except Exception as e:
+            logger.error(f"Error generating response: {e}")
+            import traceback
+            traceback.print_exc()
+            # Return a fallback response if generation fails
+            return {
+                "response": "I'm sorry, but I encountered an error generating a response. Please try again.",
+                "citations": [],
+                "context_used": len(relevant_content),
+                "module_context": module_context,
+                "conversation_resolved": resolved_context
+            }
 
         # Add cross-module navigation suggestions if requested and not in selected text mode
         if suggest_cross_module_content and module_context and not selected_text:
-            logger.info(f"Adding cross-module suggestions for query in module {module_context}")
-            response_data = await self._add_cross_module_suggestions(response_data, query, module_context)
+            try:
+                logger.info(f"Adding cross-module suggestions for query in module {module_context}")
+                response_data = await self._add_cross_module_suggestions(response_data, query, module_context)
+            except Exception as e:
+                logger.error(f"Error adding cross-module suggestions: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue without cross-module suggestions if this fails
 
         # Enhance citations and update response if needed
         if include_citations:
-            enhanced_citations = self._enhance_citations(relevant_content)
-            response_data["citations"] = enhanced_citations
-            response_data["response"] = self._format_response_with_citations(
-                response_data["response"],
-                enhanced_citations,
-                module_context  # Pass the module context for module-aware formatting
-            )
+            try:
+                enhanced_citations = self._enhance_citations(relevant_content)
+                response_data["citations"] = enhanced_citations
+                response_data["response"] = self._format_response_with_citations(
+                    response_data["response"],
+                    enhanced_citations,
+                    module_context  # Pass the module context for module-aware formatting
+                )
+            except Exception as e:
+                logger.error(f"Error formatting response with citations: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue without enhanced citations if this fails
 
         # Detect module-related concepts to enhance response
-        module_concept_analysis = self.detect_module_related_concepts(query, module_context, relevant_content)
-        response_data["module_concept_analysis"] = module_concept_analysis
+        try:
+            module_concept_analysis = self.detect_module_related_concepts(query, module_context, relevant_content)
+            response_data["module_concept_analysis"] = module_concept_analysis
+        except Exception as e:
+            logger.error(f"Error detecting module-related concepts: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue with empty analysis if this fails
+            response_data["module_concept_analysis"] = {}
 
         # Create module cross-reference citations if needed
-        if module_concept_analysis["other_module_content_count"] > 0:
-            cross_module_citations = []
-            for item in relevant_content:
-                if item.get("module_id") != module_context:
-                    cross_module_citations.append({
-                        "module": item.get("module_id", "N/A"),
-                        "chapter": item.get("chapter_id", "N/A"),
-                        "section": item.get("section_id", "N/A"),
-                        "relevance": item.get("score", 0.0)
-                    })
+        if response_data["module_concept_analysis"].get("other_module_content_count", 0) > 0:
+            try:
+                cross_module_citations = []
+                for item in relevant_content:
+                    if item.get("module_id") != module_context:
+                        cross_module_citations.append({
+                            "module": item.get("module_id", "N/A"),
+                            "chapter": item.get("chapter_id", "N/A"),
+                            "section": item.get("section_id", "N/A"),
+                            "relevance": item.get("score", 0.0)
+                        })
 
-            response_data["cross_module_citations"] = cross_module_citations
+                response_data["cross_module_citations"] = cross_module_citations
+            except Exception as e:
+                logger.error(f"Error creating cross-module citations: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue without cross-module citations if this fails
 
         # Add additional metadata
         response_data["module_context"] = module_context

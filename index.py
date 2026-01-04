@@ -76,22 +76,29 @@ async def quick_test():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# Import and include routers
+# Import and include routers with better error handling
 try:
     from src.api.chat_endpoints import router as chat_router
     from src.api.text_selection_endpoints import router as text_selection_router
     from src.api.conversation_endpoints import router as conversation_router
     from src.api.module_context_endpoints import router as module_context_router
     from src.api.system_endpoints import router as system_router
-    
+
     app.include_router(chat_router, prefix="/api")
     app.include_router(text_selection_router, prefix="/api")
     app.include_router(conversation_router, prefix="/api")
     app.include_router(module_context_router, prefix="/api")
     app.include_router(system_router, prefix="/api")
-    
+
 except ImportError as e:
-    print(f"Warning: Could not import routers: {e}")
+    print(f"Critical Error: Could not import routers: {e}")
+    import traceback
+    traceback.print_exc()
+    # Continue with basic endpoints only, but log the error
+except Exception as e:
+    print(f"Unexpected error during router import: {e}")
+    import traceback
+    traceback.print_exc()
     # Continue with basic endpoints only
 
 # Vercel serverless handler

@@ -56,3 +56,4 @@ htmlcov/
 # CRITICAL: Remove duplicate entry points if you keep them temporarily
 # api.py should be deleted, not ignored
 # api/index.py should be deleted, not ignored
+.env*.local

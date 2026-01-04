@@ -211,27 +211,36 @@ async def chat_query(request: ChatQueryRequest):
                 raise HTTPException(status_code=500, detail="Failed to update session module context")
 
         # Get conversation context using the conversational context manager
-        context_manager = get_conversational_context_manager()
+        try:
+            context_manager = get_conversational_context_manager()
 
-        # Get conversation context for the session
-        conversation_context = context_manager.get_conversation_context(session_id, num_exchanges=5)
+            # Get conversation context for the session
+            conversation_context = context_manager.get_conversation_context(session_id, num_exchanges=5)
 
-        # Validate conversation state
-        validation = context_manager.validate_conversation_state(session_id)
-        if not validation["session_exists"]:
-            raise HTTPException(status_code=404, detail="Session not found")
-        if not validation["session_active"]:
-            raise HTTPException(status_code=400, detail="Session is not active")
+            # Validate conversation state
+            validation = context_manager.validate_conversation_state(session_id)
+            if not validation["session_exists"]:
+                raise HTTPException(status_code=404, detail="Session not found")
+            if not validation["session_active"]:
+                raise HTTPException(status_code=400, detail="Session is not active")
 
-        # Resolve follow-up question if applicable
-        resolved_context = context_manager.resolve_follow_up_question(request.message, conversation_context)
+            # Resolve follow-up question if applicable
+            resolved_context = context_manager.resolve_follow_up_question(request.message, conversation_context)
 
-        # Get the actual query to use (may be modified for follow-ups)
-        actual_query = resolved_context["resolved_query"]
+            # Get the actual query to use (may be modified for follow-ups)
+            actual_query = resolved_context["resolved_query"]
 
-        # Track the current topic
-        topic_info = context_manager.track_conversation_topic(conversation_context)
-        current_topic = topic_info["current_topic"]
+            # Track the current topic
+            topic_info = context_manager.track_conversation_topic(conversation_context)
+            current_topic = topic_info["current_topic"]
+        except Exception as e:
+            print(f"Error in conversation context management: {e}")
+            import traceback
+            traceback.print_exc()
+            # Continue with empty context if context management fails
+            conversation_context = []
+            current_topic = None
+            actual_query = request.message
 
         # Add user message to session with conversation context
         user_message = get_session_manager_service().add_message_to_session(
@@ -292,6 +301,18 @@ async def chat_query(request: ChatQueryRequest):
                 citations=[],
                 timestamp=datetime.utcnow().isoformat(),
                 validation_result={"valid": True, "error": "timeout"}
+            )
+        except Exception as e:
+            print(f"Error calling RAG agent: {e}")
+            import traceback
+            traceback.print_exc()
+            return ChatQueryResponse(
+                session_id=str(session_id),
+                response_id=str(uuid4()),
+                message="I'm sorry, but I encountered an error processing your request. Please try again.",
+                citations=[],
+                timestamp=datetime.utcnow().isoformat(),
+                validation_result={"valid": True, "error": str(e)}
             )
 
         # If response indicates no relevant content found, provide appropriate message
@@ -463,10 +484,13 @@ async def send_streaming_response(websocket: WebSocket, response_generator, sess
             "timestamp": str(datetime.now())
         }
 
-        # The send_streaming_response function is not properly implemented
-        # It references 'manager' which is defined later in the file
-        # This function would need to be restructured to work properly
-        pass
+        try:
+            await websocket.send_text(json.dumps(chunk_message))
+        except WebSocketDisconnect:
+            break
+        except Exception as e:
+            print(f"Error sending WebSocket message: {e}")
+            break
 
 
 # WebSocket endpoint for real-time chat
@@ -526,36 +550,46 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 continue
 
             if message_type == "chat_message":
-                # Process the chat query using our existing logic
-                response_data = get_rag_agent_service().answer_question(
-                    query=message_content,
-                    session_id=session_id,
-                    module_context=module_context
-                )
+                try:
+                    # Process the chat query using our existing logic
+                    response_data = await get_rag_agent_service().answer_question(
+                        query=message_content,
+                        session_id=session_id,
+                        module_context=module_context
+                    )
 
-                # Stream the response in chunks
-                full_response = response_data.get("response", "Sorry, I couldn't process your request.")
+                    # Stream the response in chunks
+                    full_response = response_data.get("response", "Sorry, I couldn't process your request.")
 
-                # Break the response into chunks for streaming
-                words = full_response.split()
-                chunk_size = 10  # Words per chunk
+                    # Break the response into chunks for streaming
+                    words = full_response.split()
+                    chunk_size = 10  # Words per chunk
 
-                for i in range(0, len(words), chunk_size):
-                    chunk_words = words[i:i + chunk_size]
-                    chunk_text = " ".join(chunk_words)
-                    is_final_chunk = (i + chunk_size >= len(words))
+                    for i in range(0, len(words), chunk_size):
+                        chunk_words = words[i:i + chunk_size]
+                        chunk_text = " ".join(chunk_words)
+                        is_final_chunk = (i + chunk_size >= len(words))
 
-                    response_message = {
-                        "type": "streaming_response",
-                        "response_id": str(uuid4()),
-                        "session_id": session_id,
-                        "chunk": chunk_text,
-                        "is_final_chunk": is_final_chunk,
-                        "citations": response_data.get("citations", []) if is_final_chunk else [],
-                        "timestamp": str(datetime.now())
+                        response_message = {
+                            "type": "streaming_response",
+                            "response_id": str(uuid4()),
+                            "session_id": session_id,
+                            "chunk": chunk_text,
+                            "is_final_chunk": is_final_chunk,
+                            "citations": response_data.get("citations", []) if is_final_chunk else [],
+                            "timestamp": str(datetime.now())
+                        }
+
+                        await websocket.send_text(json.dumps(response_message))
+                except Exception as e:
+                    print(f"Error in WebSocket chat processing: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    error_message = {
+                        "type": "error",
+                        "message": "Sorry, I encountered an error processing your request."
                     }
-
-                    await websocket.send_text(json.dumps(response_message))
+                    await websocket.send_text(json.dumps(error_message))
 
     except WebSocketDisconnect:
         manager.disconnect(websocket)
@@ -572,7 +606,7 @@ async def stream_response_endpoint(session_id: str, query: str, module_context: 
     async def generate_stream():
         try:
             # Process the query
-            response_data = get_rag_agent_service().answer_question(
+            response_data = await get_rag_agent_service().answer_question(
                 query=query,
                 session_id=session_id,
                 module_context=module_context
@@ -601,6 +635,9 @@ async def stream_response_endpoint(session_id: str, query: str, module_context: 
                     await asyncio.sleep(0.1)
 
         except Exception as e:
+            print(f"Error in HTTP streaming: {e}")
+            import traceback
+            traceback.print_exc()
             error_data = {
                 "type": "error",
                 "message": f"Error generating response: {str(e)}"
