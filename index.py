@@ -8,39 +8,91 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
+from datetime import datetime
 
-# 1. Path manipulation to ensure src is found correctly
-# Add the current directory to sys.path
-backend_path = Path(__file__).parent.absolute()
-if str(backend_path) not in sys.path:
-    sys.path.insert(0, str(backend_path))
+# Add current directory to Python path
+current_dir = Path(__file__).parent
+if str(current_dir) not in sys.path:
+    sys.path.insert(0, str(current_dir))
 
-# 2. Initialize the FastAPI app and Mangum handler
+# Create FastAPI app
+app = FastAPI(
+    title="Physical AI RAG Backend",
+    version="1.0.0",
+    description="RAG Chatbot for Physical AI & Humanoid Robotics"
+)
+
+# CORS Configuration
+allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "*")
+if allowed_origins_raw == "*":
+    origins = ["*"]
+else:
+    origins = [o.strip() for o in allowed_origins_raw.split(",") if o.strip()]
+
+# Add Vercel-specific origins
+if "*" not in origins:
+    vercel_url = os.getenv("VERCEL_URL")
+    if vercel_url:
+        origins.append(f"https://{vercel_url}")
+    # Add your production domain
+    origins.extend([
+        "https://physical-ai-book.vercel.app",
+        "https://physical-ai-book-five-ivory.vercel.app"
+    ])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Basic endpoints
+@app.get("/")
+@app.get("/api")
+async def root():
+    return {
+        "message": "Physical AI RAG Backend",
+        "status": "running",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "1.0.0"
+    }
+
+@app.get("/health")
+@app.get("/api/health")
+async def health():
+    return {
+        "status": "healthy",
+        "service": "rag-backend",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+@app.get("/api/quick-test")
+async def quick_test():
+    return {
+        "status": "connected",
+        "message": "Backend is operational",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+# Import and include routers
 try:
-    # Importing from our main application
-    from src.main import app as fastapi_app
+    from src.api.chat_endpoints import router as chat_router
+    from src.api.text_selection_endpoints import router as text_selection_router
+    from src.api.conversation_endpoints import router as conversation_router
+    from src.api.module_context_endpoints import router as module_context_router
+    from src.api.system_endpoints import router as system_router
     
-    # Wrap with Mangum for Vercel Serverless (AWS Lambda)
-    # lifespan="off" is often safer for serverless to avoid startup delays/errors
-    handler = Mangum(fastapi_app, lifespan="off")
+    app.include_router(chat_router, prefix="/api")
+    app.include_router(text_selection_router, prefix="/api")
+    app.include_router(conversation_router, prefix="/api")
+    app.include_router(module_context_router, prefix="/api")
+    app.include_router(system_router, prefix="/api")
     
-    # The variable MUST be named 'app' for Vercel's default detection
-    app = handler
+except ImportError as e:
+    print(f"Warning: Could not import routers: {e}")
+    # Continue with basic endpoints only
 
-except Exception as e:
-    # 3. Fallback error app if main import fails
-    print(f"CRITICAL ERROR during initialization: {e}")
-    
-    error_app = FastAPI(title="Physical AI RAG - Error Handler")
-    
-    @error_app.get("/{full_path:path}")
-    async def error_fallback(full_path: str):
-        return {
-            "status": "initialization_error",
-            "message": "The backend failed to start. Check Vercel logs.",
-            "error": str(e),
-            "requested_path": full_path
-        }
-    
-    app = Mangum(error_app, lifespan="off")
-
+# Vercel serverless handler
+handler = Mangum(app, lifespan="off")
