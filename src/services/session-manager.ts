@@ -7,14 +7,24 @@ export class SessionManagementService {
 
     async createSession(studentId: string, currentModuleContext?: string) {
         try {
-            // Verify student exists
-            const student = await prisma.student.findUnique({
+            // Verify or create student
+            let student = await prisma.student.findUnique({
                 where: { id: studentId },
             });
 
+            // Auto-create anonymous student if they don't exist
             if (!student) {
-                console.warn(`Student with ID ${studentId} not found`);
-                return null;
+                if (studentId === 'anonymous' || studentId.startsWith('anon-')) {
+                    student = await prisma.student.create({
+                        data: {
+                            id: studentId,
+                        },
+                    });
+                    console.info(`Created anonymous student ${studentId}`);
+                } else {
+                    console.warn(`Student with ID ${studentId} not found`);
+                    return null;
+                }
             }
 
             // Create new session
