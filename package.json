@@ -10,7 +10,8 @@
     "start": "node dist/index.js",
     "test": "vitest",
     "prisma:generate": "prisma generate",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "postinstall": "npm run prisma:generate"
   },
   "keywords": [],
   "author": "",

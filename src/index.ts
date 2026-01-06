@@ -29,6 +29,9 @@ app.use((cors as any).default ? (cors as any).default() : (cors as any)());
 app.use(express.json());
 
 // Routes
+app.get('/', (req, res) => {
+    res.json({ status: 'active', message: 'Physical AI Book Backend is running' });
+});
 app.use('/api/chat', chatRouter);
 app.use('/api/health', healthRouter);
 app.use('/api/text-selection', textSelectionRouter);

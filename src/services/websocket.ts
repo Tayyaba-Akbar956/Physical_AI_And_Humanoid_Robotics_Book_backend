@@ -3,8 +3,7 @@ import { IncomingMessage } from 'http';
 import { getRAGAgentService } from './rag-agent.js';
 import { getSessionManagementService } from './session-manager.js';
 
-const ragAgent = getRAGAgentService();
-const sessionService = getSessionManagementService();
+// Services will be initialized inside the handler to prevent top-level crashes
 
 export const handleWebSocketConnection = (ws: WebSocket, req: IncomingMessage) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
@@ -17,6 +16,9 @@ export const handleWebSocketConnection = (ws: WebSocket, req: IncomingMessage) =
 
     ws.on('message', async (data) => {
         try {
+            const ragAgent = getRAGAgentService();
+            const sessionService = getSessionManagementService();
+
             const message = JSON.parse(data.toString());
             const { type, query, moduleContext, selectedText } = message;
 
