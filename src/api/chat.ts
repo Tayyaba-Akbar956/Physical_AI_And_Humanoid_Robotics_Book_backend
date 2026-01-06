@@ -27,12 +27,21 @@ router.post('/session/create', async (req, res) => {
 router.post('/query', async (req, res) => {
     const { message, query, session_id, sessionId, module_context, moduleContext, selected_text, selectedText } = req.body;
     const actualQuery = message || query;
-    const actualSessionId = session_id || sessionId;
+    let actualSessionId = session_id || sessionId;
     const actualModuleContext = module_context || moduleContext;
     const actualSelectedText = selected_text || selectedText;
 
-    if (!actualQuery || !actualSessionId) {
-        return res.status(400).json({ error: 'message/query and session_id/sessionId are required' });
+    if (!actualQuery) {
+        return res.status(400).json({ error: 'message/query is required' });
+    }
+
+    // Auto-create session if not provided
+    if (!actualSessionId) {
+        const newSession = await sessionService.createSession('anonymous', actualModuleContext);
+        if (!newSession) {
+            return res.status(500).json({ error: 'Failed to create session' });
+        }
+        actualSessionId = newSession.id;
     }
 
     const conversationContext = await sessionService.getConversationContext(actualSessionId);
