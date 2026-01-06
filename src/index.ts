@@ -12,11 +12,13 @@ import { handleWebSocketConnection } from './services/websocket.js';
 
 dotenv.config();
 
-const logger = pino({
+const isDev = process.env.NODE_ENV !== 'production' && !process.env.VERCEL;
+
+const logger = pino(isDev ? {
     transport: {
         target: 'pino-pretty',
     },
-});
+} : {});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,14 +40,19 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     res.status(500).json({ error: 'Internal Server Error' });
 });
 
-const server = app.listen(PORT, () => {
-    logger.info(`Server is running on port ${PORT}`);
-});
+let server: any;
+if (!process.env.VERCEL) {
+    server = app.listen(PORT, () => {
+        logger.info(`Server is running on port ${PORT}`);
+    });
+}
 
-// WebSocket Server
-const wss = new WebSocketServer({ server });
-wss.on('connection', (ws, req) => {
-    handleWebSocketConnection(ws, req);
-});
+// WebSocket Server (Note: WebSockets will not work on Vercel Serverless Functions)
+if (server && !process.env.VERCEL) {
+    const wss = new WebSocketServer({ server });
+    wss.on('connection', (ws, req) => {
+        handleWebSocketConnection(ws, req);
+    });
+}
 
 export default app;
