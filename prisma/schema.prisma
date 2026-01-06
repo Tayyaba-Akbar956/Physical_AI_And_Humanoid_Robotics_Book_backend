@@ -1,0 +1,76 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Student {
+  id                  String        @id @default(uuid()) @db.Uuid
+  createdAt           DateTime      @default(now()) @map("created_at")
+  updatedAt           DateTime      @updatedAt @map("updated_at")
+  preferences         Json?
+  lastModuleAccessed  String?       @map("last_module_accessed")
+  chatSessions        ChatSession[]
+
+  @@map("students")
+}
+
+model ChatSession {
+  id                    String    @id @default(uuid()) @db.Uuid
+  studentId             String    @map("student_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  currentModuleContext  String?   @map("current_module_context")
+  isActive              Boolean   @default(true) @map("is_active")
+  sessionMetadata       Json?     @map("session_metadata")
+  conversationContext   Json?     @map("conversation_context")
+  lastInteractionAt     DateTime? @map("last_interaction_at")
+  conversationDepth     Int       @default(0) @map("conversation_depth")
+  activeTopic           String?   @map("active_topic")
+  student               Student   @relation(fields: [studentId], references: [id])
+  messages              Message[]
+
+  @@map("chat_sessions")
+}
+
+model Message {
+  id                String        @id @default(uuid()) @db.Uuid
+  sessionId         String        @map("session_id") @db.Uuid
+  senderType        String        @map("sender_type") // student, ai_agent
+  content           String        @db.Text
+  timestamp         DateTime      @default(now())
+  messageMetadata   Json?         @map("message_metadata")
+  citations         Json?
+  selectedTextRef   String?       @map("selected_text_ref") @db.Uuid
+  conversationTurn   Int?          @map("conversation_turn")
+  contextBefore     Json?         @map("context_before")
+  contextAfter      Json?         @map("context_after")
+  parentMessageId   String?       @map("parent_message_id") @db.Uuid
+  topicAnchored     String?       @map("topic_anchored")
+  followUpTo        String?       @map("follow_up_to") @db.Uuid
+  session           ChatSession   @relation(fields: [sessionId], references: [id])
+  parentMessage     Message?      @relation("MessageHierarchy", fields: [parentMessageId], references: [id])
+  childMessages     Message[]     @relation("MessageHierarchy")
+  selectedText      SelectedText? @relation(fields: [selectedTextRef], references: [id])
+
+  @@map("messages")
+}
+
+model SelectedText {
+  id              String   @id @default(uuid()) @db.Uuid
+  content         String   @db.Text
+  moduleId        String   @map("module_id")
+  chapterId       String   @map("chapter_id")
+  sectionId       String   @map("section_id")
+  hierarchyPath   String   @map("hierarchy_path")
+  createdAt       DateTime @default(now()) @map("created_at")
+  messages        Message[]
+
+  @@map("selected_texts")
+}
