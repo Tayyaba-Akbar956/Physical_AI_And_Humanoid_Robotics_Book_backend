@@ -1,6 +1,6 @@
 import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
+import * as cors from 'cors';
+import * as helmet from 'helmet';
 import dotenv from 'dotenv';
 import { pino } from 'pino';
 import chatRouter from './api/chat.js';
@@ -22,8 +22,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(helmet());
-app.use(cors());
+app.use((helmet as any).default ? (helmet as any).default() : (helmet as any)());
+app.use((cors as any).default ? (cors as any).default() : (cors as any)());
 app.use(express.json());
 
 // Routes
