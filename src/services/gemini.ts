@@ -41,7 +41,7 @@ export class GeminiService {
 
         // OpenRouter for chat
         this.openRouterKey = OPENROUTER_API_KEY || '';
-        this.chatModelName = 'meta-llama/llama-3.2-3b-instruct:free';
+        this.chatModelName = 'qwen/qwen-2.5-7b-instruct:free';
     }
 
     // Uses Gemini SDK for embeddings (preserves 768 dimensions)
