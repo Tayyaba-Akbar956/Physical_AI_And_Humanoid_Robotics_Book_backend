@@ -7,20 +7,27 @@ export class SessionManagementService {
 
     async createSession(studentId: string, currentModuleContext?: string) {
         try {
+            // Handle anonymous user with a valid UUID
+            let targetStudentId = studentId;
+            if (studentId === 'anonymous' || studentId.startsWith('anon-')) {
+                // Use a constant valid UUID for the anonymous user
+                targetStudentId = '00000000-0000-0000-0000-000000000000';
+            }
+
             // Verify or create student
             let student = await prisma.student.findUnique({
-                where: { id: studentId },
+                where: { id: targetStudentId },
             });
 
             // Auto-create anonymous student if they don't exist
             if (!student) {
-                if (studentId === 'anonymous' || studentId.startsWith('anon-')) {
+                if (targetStudentId === '00000000-0000-0000-0000-000000000000') {
                     student = await prisma.student.create({
                         data: {
-                            id: studentId,
+                            id: targetStudentId,
                         },
                     });
-                    console.info(`Created anonymous student ${studentId}`);
+                    console.info(`Created anonymous student ${targetStudentId}`);
                 } else {
                     console.warn(`Student with ID ${studentId} not found`);
                     return null;
@@ -30,7 +37,7 @@ export class SessionManagementService {
             // Create new session
             const session = await prisma.chatSession.create({
                 data: {
-                    studentId,
+                    studentId: targetStudentId,
                     currentModuleContext,
                     sessionMetadata: {},
                 },
