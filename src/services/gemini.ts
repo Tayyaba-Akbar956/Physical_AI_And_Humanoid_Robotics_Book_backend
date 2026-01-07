@@ -49,13 +49,15 @@ export class GeminiService {
 
     async generateResponse(
         prompt: string,
-        history: { role: 'user' | 'model'; parts: { text: string }[] }[] = []
+        history: { role: 'user' | 'model'; parts: { text: string }[] }[] = [],
+        systemInstruction?: string
     ): Promise<string> {
         if (!GEMINI_API_KEY) return 'Gemini API Key is missing.';
 
         try {
             const chat = this.chatModel.startChat({
                 history: history,
+                systemInstruction: systemInstruction,
             });
 
             const result = await chat.sendMessage(prompt);

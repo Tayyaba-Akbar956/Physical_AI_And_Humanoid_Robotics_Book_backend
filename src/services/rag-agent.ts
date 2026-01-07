@@ -87,7 +87,7 @@ Contextual Intent: ${intent}
             systemPrompt += `\nThe student is currently studying Module: ${moduleContext}. Prioritize responses using content from current module when possible.`;
         }
 
-        const responseText = await this.geminiService.generateResponse(query, history);
+        const responseText = await this.geminiService.generateResponse(query, history, systemPrompt);
 
         return {
             response: responseText,
