@@ -57,7 +57,7 @@ export class GeminiService {
         try {
             const chat = this.chatModel.startChat({
                 history: history,
-                systemInstruction: systemInstruction,
+                systemInstruction: systemInstruction ? { role: 'system', parts: [{ text: systemInstruction }] } : undefined,
             });
 
             const result = await chat.sendMessage(prompt);
